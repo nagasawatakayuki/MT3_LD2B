@@ -1,141 +1,185 @@
 #include <Novice.h>
 #include <math.h>
 
-const char kWindowTitle[] = "LD2B_04_ナガサワタカユキ_射影とビューポート";
+const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_クロス積と3D三角形描画";
 
-//==================================================
+//====================================
+// ウィンドウサイズ
+//====================================
+const int kWindowWidth = 1280;
+const int kWindowHeight = 720;
+
+//====================================
 // 構造体定義
-//==================================================
-
-// 4x4 行列構造体
-struct Matrix4x4 {
-	float m[4][4];
+//====================================
+struct Vector3 {
+    float x, y, z;
 };
 
-//==================================================
-// 射影・ビューポート変換行列の作成関数群
-//==================================================
+struct Matrix4x4 {
+    float m[4][4];
+};
 
-/// <summary>
-/// 正射影行列の作成
-/// </summary>
-/// <param name="left">左端</param>
-/// <param name="top">上端</param>
-/// <param name="right">右端</param>
-/// <param name="bottom">下端</param>
-/// <param name="nearClip">近クリップ面</param>
-/// <param name="farClip">遠クリップ面</param>
-/// <returns>正射影行列</returns>
-Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearClip, float farClip) {
-	Matrix4x4 result{};
-	result.m[0][0] = 2.0f / (right - left);
-	result.m[1][1] = 2.0f / (top - bottom);
-	result.m[2][2] = 1.0f / (farClip - nearClip);
-	result.m[3][0] = (left + right) / (left - right);
-	result.m[3][1] = (top + bottom) / (bottom - top);
-	result.m[3][2] = nearClip / (nearClip - farClip);
-	result.m[3][3] = 1.0f;
-	return result;
+//====================================
+// 演算・行列ユーティリティ
+//====================================
+Vector3 Cross(const Vector3& v1, const Vector3& v2) {
+    return {
+        v1.y * v2.z - v1.z * v2.y,
+        v1.z * v2.x - v1.x * v2.z,
+        v1.x * v2.y - v1.y * v2.x
+    };
 }
 
-/// <summary>
-/// 透視投影行列の作成
-/// </summary>
-/// <param name="fovY">Y軸方向の視野角（ラジアン）</param>
-/// <param name="aspectRatio">アスペクト比</param>
-/// <param name="nearClip">近クリップ面</param>
-/// <param name="farClip">遠クリップ面</param>
-/// <returns>透視投影行列</returns>
-Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio, float nearClip, float farClip) {
-	Matrix4x4 result{};
-	float f = 1.0f / tanf(fovY / 2.0f);
-	result.m[0][0] = f / aspectRatio;
-	result.m[1][1] = f;
-	result.m[2][2] = farClip / (farClip - nearClip);
-	result.m[2][3] = 1.0f;
-	result.m[3][2] = -nearClip * farClip / (farClip - nearClip);
-	return result;
+Vector3 operator+(const Vector3& a, const Vector3& b) {
+    return { a.x + b.x, a.y + b.y, a.z + b.z };
 }
 
-/// <summary>
-/// ビューポート変換行列の作成
-/// </summary>
-/// <param name="left">ビューポートの左端</param>
-/// <param name="top">ビューポートの上端</param>
-/// <param name="width">ビューポートの幅</param>
-/// <param name="height">ビューポートの高さ</param>
-/// <param name="minDepth">最小深度</param>
-/// <param name="maxDepth">最大深度</param>
-/// <returns>ビューポート変換行列</returns>
+Matrix4x4 MakeIdentityMatrix() {
+    return {
+        1,0,0,0,
+        0,1,0,0,
+        0,0,1,0,
+        0,0,0,1
+    };
+}
+
+Matrix4x4 MakeRotateYMatrix(float rad) {
+    return {
+        cosf(rad), 0, -sinf(rad), 0,
+        0, 1, 0, 0,
+        sinf(rad), 0, cosf(rad), 0,
+        0, 0, 0, 1
+    };
+}
+
+Matrix4x4 MakeTranslateMatrix(Vector3 t) {
+    Matrix4x4 m = MakeIdentityMatrix();
+    m.m[3][0] = t.x;
+    m.m[3][1] = t.y;
+    m.m[3][2] = t.z;
+    return m;
+}
+
+Matrix4x4 Multiply(const Matrix4x4& m1, const Matrix4x4& m2) {
+    Matrix4x4 result{};
+    for (int i = 0; i < 4; ++i)
+        for (int j = 0; j < 4; ++j)
+            for (int k = 0; k < 4; ++k)
+                result.m[i][j] += m1.m[i][k] * m2.m[k][j];
+    return result;
+}
+
+Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float farZ) {
+    Matrix4x4 m{};
+    float f = 1.0f / tanf(fovY / 2);
+    m.m[0][0] = f / aspect;
+    m.m[1][1] = f;
+    m.m[2][2] = farZ / (farZ - nearZ);
+    m.m[2][3] = 1.0f;
+    m.m[3][2] = -nearZ * farZ / (farZ - nearZ);
+    return m;
+}
+
 Matrix4x4 MakeViewportMatrix(float left, float top, float width, float height, float minDepth, float maxDepth) {
-	Matrix4x4 result{};
-	result.m[0][0] = width / 2.0f;
-	result.m[1][1] = -height / 2.0f;
-	result.m[2][2] = maxDepth - minDepth;
-	result.m[3][0] = left + width / 2.0f;
-	result.m[3][1] = top + height / 2.0f;
-	result.m[3][2] = minDepth;
-	result.m[3][3] = 1.0f;
-	return result;
+    Matrix4x4 m{};
+    m.m[0][0] = width / 2;
+    m.m[1][1] = -height / 2;
+    m.m[2][2] = maxDepth - minDepth;
+    m.m[3][0] = left + width / 2;
+    m.m[3][1] = top + height / 2;
+    m.m[3][2] = minDepth;
+    m.m[3][3] = 1;
+    return m;
 }
 
-//==================================================
-// 行列の表示関数
-//==================================================
+Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
+    float x = v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + m.m[3][0];
+    float y = v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + m.m[3][1];
+    float z = v.x * m.m[0][2] + v.y * m.m[1][2] + v.z * m.m[2][2] + m.m[3][2];
+    float w = v.x * m.m[0][3] + v.y * m.m[1][3] + v.z * m.m[2][3] + m.m[3][3];
 
-/// <summary>
-/// 行列を画面に表示する
-/// </summary>
-/// <param name="x">表示開始位置X</param>
-/// <param name="y">表示開始位置Y</param>
-/// <param name="matrix">表示する行列</param>
-/// <param name="label">ラベル文字列</param>
-void MatrixScreenPrint(int x, int y, const Matrix4x4& matrix, const char* label) {
-	Novice::ScreenPrintf(x, y, "%s", label);
-	for (int i = 0; i < 4; ++i) {
-		Novice::ScreenPrintf(x, y + 20 * (i + 1),
-			"%6.2f %6.2f %6.2f %6.2f",
-			matrix.m[i][0], matrix.m[i][1], matrix.m[i][2], matrix.m[i][3]);
-	}
+    return { x / w, y / w, z / w };
 }
 
-//==================================================
+void VectorScreenPrintf(int x, int y, const Vector3& v, const char* label) {
+    Novice::ScreenPrintf(x, y, "%s: %.2f %.2f %.2f", label, v.x, v.y, v.z);
+}
+
+//====================================
 // メイン関数
-//==================================================
-
+//====================================
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-	Novice::Initialize(kWindowTitle, 1280, 720);
+    Novice::Initialize(kWindowTitle, kWindowWidth, kWindowHeight);
 
-	char keys[256] = { 0 };
-	char preKeys[256] = { 0 };
+    char keys[256] = {};
+    char preKeys[256] = {};
 
-	//===============================
-	// 射影・ビューポート行列の作成
-	//===============================
-	Matrix4x4 orthographicMatrix = MakeOrthographicMatrix(-160.0f, 160.0f, 200.0f, 300.0f, 0.0f, 1000.0f);
-	Matrix4x4 perspectiveFovMatrix = MakePerspectiveFovMatrix(0.63f, 1.33f, 0.1f, 1000.0f);
-	Matrix4x4 viewportMatrix = MakeViewportMatrix(100.0f, 200.0f, 600.0f, 300.0f, 0.0f, 1.0f);
+    // クロス積確認用
+    Vector3 v1{ 1.2f, -3.9f, 2.5f };
+    Vector3 v2{ 2.8f, 0.4f, -1.3f };
+    Vector3 cross = Cross(v1, v2);
 
-	//===============================
-	// メインループ
-	//===============================
-	while (Novice::ProcessMessage() == 0) {
-		Novice::BeginFrame();
-		memcpy(preKeys, keys, 256);
-		Novice::GetHitKeyStateAll(keys);
+    // 三角形ローカル座標
+    Vector3 localVertices[3] = {
+        {-0.5f, -0.5f, 0.0f},
+        { 0.0f,  0.5f, 0.0f},
+        { 0.5f, -0.5f, 0.0f}
+    };
 
-		// 行列の描画（20ピクセルごとに段差）
-		int kRowHeight = 20;
-		MatrixScreenPrint(0, 0, orthographicMatrix, "orthographicMatrix");
-		MatrixScreenPrint(0, kRowHeight * 5, perspectiveFovMatrix, "perspectiveFovMatrix");
-		MatrixScreenPrint(0, kRowHeight * 10, viewportMatrix, "viewportMatrix");
+    Vector3 translate = { 0.0f, 0.0f, 5.0f };
+    Vector3 rotate{};
+    float angle = 0.0f;
 
-		Novice::EndFrame();
+    while (Novice::ProcessMessage() == 0) {
+        Novice::BeginFrame();
+        memcpy(preKeys, keys, 256);
+        Novice::GetHitKeyStateAll(keys);
 
-		// ESCキーで終了
-		if (preKeys[DIK_ESCAPE] == 0 && keys[DIK_ESCAPE] != 0) break;
-	}
+        // 入力に応じた移動ベクトル（毎フレームリセット）
+        Vector3 deltaTranslate{};
+        if (keys[DIK_W]) deltaTranslate.z -= 0.1f;
+        if (keys[DIK_S]) deltaTranslate.z += 0.1f;
+        if (keys[DIK_A]) deltaTranslate.x -= 0.1f;
+        if (keys[DIK_D]) deltaTranslate.x += 0.1f;
 
-	Novice::Finalize();
-	return 0;
+        translate = translate + deltaTranslate;
+
+        // Y軸自動回転
+        angle += 0.02f;
+        rotate.y = angle;
+
+        // 各行列
+        Matrix4x4 worldMatrix = Multiply(MakeRotateYMatrix(rotate.y), MakeTranslateMatrix(translate));
+        Matrix4x4 viewMatrix = MakeTranslateMatrix({ 0, 0, -10 });  // カメラ後方に固定
+        Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kWindowWidth) / float(kWindowHeight), 0.1f, 100.0f);
+        Matrix4x4 viewportMatrix = MakeViewportMatrix(0, 0, float(kWindowWidth), float(kWindowHeight), 0.0f, 1.0f);
+
+        // 最終行列合成
+        Matrix4x4 wvp = Multiply(Multiply(worldMatrix, viewMatrix), projectionMatrix);
+
+        // 頂点変換 → スクリーン座標へ
+        Vector3 screenVertices[3];
+        for (int i = 0; i < 3; i++) {
+            Vector3 ndc = Transform(localVertices[i], wvp);
+            screenVertices[i] = Transform(ndc, viewportMatrix);
+        }
+
+        // 描画
+        Novice::DrawTriangle(
+            int(screenVertices[0].x), int(screenVertices[0].y),
+            int(screenVertices[1].x), int(screenVertices[1].y),
+            int(screenVertices[2].x), int(screenVertices[2].y),
+            RED, kFillModeSolid
+        );
+
+        // クロス積確認
+        VectorScreenPrintf(0, 0, cross, "Cross");
+
+        Novice::EndFrame();
+        if (preKeys[DIK_ESCAPE] == 0 && keys[DIK_ESCAPE] != 0) break;
+    }
+
+    Novice::Finalize();
+    return 0;
 }
