@@ -154,7 +154,9 @@ void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     Novice::Initialize(kWindowTitle, 1280, 720);
-    char keys[256], preKeys[256];
+
+    char keys[256] = { 0 };
+    char preKeys[256] = { 0 };
 
     Sphere s1 = { {0.0f, -0.5f, 1.5f}, 0.6f };  // ▼ 球1のYを下へ
     Sphere s2 = { {0.8f, -0.5f, 1.0f}, 0.4f };  // ▼ 球2のYを下へ
