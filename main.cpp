@@ -1,9 +1,8 @@
 #include <Novice.h>
 #include <imgui.h>
-#include <stdint.h>
 #include <math.h>
 
-const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_球と球の衝突判定";
+const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_球と平面の衝突判定";
 
 //========================================
 // 構造体定義
@@ -21,11 +20,24 @@ struct Sphere {
     float radius;
 };
 
+struct Plane {
+    Vector3 normal;
+    float distance;
+};
+
 //========================================
-// ベクトル演算ユーティリティ関数
+// ベクトル演算
 //========================================
 Vector3 Subtract(const Vector3& a, const Vector3& b) {
     return { a.x - b.x, a.y - b.y, a.z - b.z };
+}
+
+Vector3 Add(const Vector3& a, const Vector3& b) {
+    return { a.x + b.x, a.y + b.y, a.z + b.z };
+}
+
+Vector3 Multiply(float s, const Vector3& v) {
+    return { s * v.x, s * v.y, s * v.z };
 }
 
 float Dot(const Vector3& a, const Vector3& b) {
@@ -36,8 +48,22 @@ float Length(const Vector3& v) {
     return sqrtf(Dot(v, v));
 }
 
+Vector3 Normalize(const Vector3& v) {
+    float len = Length(v);
+    if (len == 0) return { 0, 0, 0 };
+    return { v.x / len, v.y / len, v.z / len };
+}
+
+Vector3 Cross(const Vector3& a, const Vector3& b) {
+    return {
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x
+    };
+}
+
 //========================================
-// 行列の生成と変換処理
+// 行列生成・変換
 //========================================
 Matrix4x4 MakeIdentityMatrix() {
     return { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
@@ -96,9 +122,6 @@ Matrix4x4 MakeViewportMatrix(float left, float top, float width, float height, f
     return m;
 }
 
-//========================================
-// ベクトルの座標変換（行列適用）
-//========================================
 Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
     float x = v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + m.m[3][0];
     float y = v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + m.m[3][1];
@@ -108,54 +131,15 @@ Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
 }
 
 //========================================
-// 衝突判定（中心間の距離と半径の和）
+// 衝突判定（球と平面）
 //========================================
-bool IsCollision(const Sphere& s1, const Sphere& s2) {
-    float distance = Length(Subtract(s1.center, s2.center));
-    return distance <= (s1.radius + s2.radius);
+bool IsCollision(const Sphere& sphere, const Plane& plane) {
+    float distance = Dot(plane.normal, sphere.center) - plane.distance;
+    return fabsf(distance) <= sphere.radius;
 }
 
 //========================================
-// 球の描画（緯度・経度分割による）
-//========================================
-void DrawSphere(const Sphere& sphere, const Matrix4x4& vp, const Matrix4x4& viewport, uint32_t color) {
-    const uint32_t kSubdivision = 16;
-    const float kLonEvery = 2.0f * 3.14159f / kSubdivision;
-    const float kLatEvery = 3.14159f / kSubdivision;
-
-    for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
-        float lat = -3.14159f / 2.0f + kLatEvery * latIndex;
-        for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
-            float lon = lonIndex * kLonEvery;
-
-            Vector3 a = {
-                sphere.center.x + sphere.radius * cosf(lat) * cosf(lon),
-                sphere.center.y + sphere.radius * sinf(lat),
-                sphere.center.z + sphere.radius * cosf(lat) * sinf(lon)
-            };
-            Vector3 b = {
-                sphere.center.x + sphere.radius * cosf(lat + kLatEvery) * cosf(lon),
-                sphere.center.y + sphere.radius * sinf(lat + kLatEvery),
-                sphere.center.z + sphere.radius * cosf(lat + kLatEvery) * sinf(lon)
-            };
-            Vector3 c = {
-                sphere.center.x + sphere.radius * cosf(lat) * cosf(lon + kLonEvery),
-                sphere.center.y + sphere.radius * sinf(lat),
-                sphere.center.z + sphere.radius * cosf(lat) * sinf(lon + kLonEvery)
-            };
-
-            Vector3 aScreen = Transform(Transform(a, vp), viewport);
-            Vector3 bScreen = Transform(Transform(b, vp), viewport);
-            Vector3 cScreen = Transform(Transform(c, vp), viewport);
-
-            Novice::DrawLine((int)aScreen.x, (int)aScreen.y, (int)bScreen.x, (int)bScreen.y, color);
-            Novice::DrawLine((int)aScreen.x, (int)aScreen.y, (int)cScreen.x, (int)cScreen.y, color);
-        }
-    }
-}
-
-//========================================
-// グリッド描画（XZ平面）
+// グリッド描画
 //========================================
 void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
     const float size = 2.0f;
@@ -167,9 +151,87 @@ void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
         Vector3 e1 = Transform(Transform({ p, y, size }, vp), viewport);
         Vector3 s2 = Transform(Transform({ -size, y, p }, vp), viewport);
         Vector3 e2 = Transform(Transform({ size, y, p }, vp), viewport);
-        uint32_t color = fabsf(p) < 0.001f ? 0x000000FF : 0xAAAAAAFF;
+        unsigned int color = fabsf(p) < 0.001f ? 0x000000FF : 0xAAAAAAFF;
         Novice::DrawLine((int)s1.x, (int)s1.y, (int)e1.x, (int)e1.y, color);
         Novice::DrawLine((int)s2.x, (int)s2.y, (int)e2.x, (int)e2.y, color);
+    }
+}
+
+void DrawSphere(const Sphere& sphere, const Matrix4x4& vp, const Matrix4x4& viewport, unsigned int color) {
+    const int kSubdivision = 16;
+    const float kLonEvery = 2.0f * 3.14159f / kSubdivision;
+    const float kLatEvery = 3.14159f / kSubdivision;
+
+    // 経度方向の分割（横方向）
+    for (int lat = 0; lat < kSubdivision; ++lat) {
+        float latAngle = -3.14159f / 2.0f + kLatEvery * lat;
+        for (int lon = 0; lon < kSubdivision; ++lon) {
+            float lonAngle = lon * kLonEvery;
+
+            Vector3 a = {
+                sphere.center.x + sphere.radius * cosf(latAngle) * cosf(lonAngle),
+                sphere.center.y + sphere.radius * sinf(latAngle),
+                sphere.center.z + sphere.radius * cosf(latAngle) * sinf(lonAngle)
+            };
+            Vector3 b = {
+                sphere.center.x + sphere.radius * cosf(latAngle + kLatEvery) * cosf(lonAngle),
+                sphere.center.y + sphere.radius * sinf(latAngle + kLatEvery),
+                sphere.center.z + sphere.radius * cosf(latAngle + kLatEvery) * sinf(lonAngle)
+            };
+
+            Vector3 screenA = Transform(Transform(a, vp), viewport);
+            Vector3 screenB = Transform(Transform(b, vp), viewport);
+            Novice::DrawLine((int)screenA.x, (int)screenA.y, (int)screenB.x, (int)screenB.y, color);
+        }
+    }
+
+    // 緯度方向の分割（縦方向）
+    for (int lon = 0; lon < kSubdivision; ++lon) {
+        float lonAngle = lon * kLonEvery;
+        for (int lat = 0; lat < kSubdivision; ++lat) {
+            float latAngle = -3.14159f / 2.0f + kLatEvery * lat;
+
+            Vector3 a = {
+                sphere.center.x + sphere.radius * cosf(latAngle) * cosf(lonAngle),
+                sphere.center.y + sphere.radius * sinf(latAngle),
+                sphere.center.z + sphere.radius * cosf(latAngle) * sinf(lonAngle)
+            };
+            Vector3 b = {
+                sphere.center.x + sphere.radius * cosf(latAngle) * cosf(lonAngle + kLonEvery),
+                sphere.center.y + sphere.radius * sinf(latAngle),
+                sphere.center.z + sphere.radius * cosf(latAngle) * sinf(lonAngle + kLonEvery)
+            };
+
+            Vector3 screenA = Transform(Transform(a, vp), viewport);
+            Vector3 screenB = Transform(Transform(b, vp), viewport);
+            Novice::DrawLine((int)screenA.x, (int)screenA.y, (int)screenB.x, (int)screenB.y, color);
+        }
+    }
+}
+
+
+//========================================
+// 平面の描画
+//========================================
+Vector3 Perpendicular(const Vector3& v) {
+    return (v.x != 0.0f || v.y != 0.0f) ? Vector3{ -v.y, v.x, 0 } : Vector3{ 0, -v.z, v.y };
+}
+
+void DrawPlane(const Plane& plane, const Matrix4x4& vp, const Matrix4x4& viewport, unsigned int color) {
+    Vector3 center = Multiply(plane.distance, plane.normal);
+    Vector3 u = Normalize(Perpendicular(plane.normal));
+    Vector3 v = Cross(plane.normal, u);
+
+    Vector3 points[4];
+    points[0] = Add(center, Add(u, v));
+    points[1] = Add(center, Subtract(u, v));
+    points[2] = Add(center, Subtract(Multiply(-1, u), v));
+    points[3] = Add(center, Subtract(Multiply(-1, u), Multiply(-1, v)));
+
+    for (int i = 0; i < 4; ++i) {
+        Vector3 p1 = Transform(Transform(points[i], vp), viewport);
+        Vector3 p2 = Transform(Transform(points[(i + 1) % 4], vp), viewport);
+        Novice::DrawLine((int)p1.x, (int)p1.y, (int)p2.x, (int)p2.y, color);
     }
 }
 
@@ -179,13 +241,13 @@ void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     Novice::Initialize(kWindowTitle, 1280, 720);
 
-    char keys[256] = { 0 };
-    char preKeys[256] = { 0 };
+    char keys[256] = {};
+    char preKeys[256] = {};
 
-    Sphere s1 = { {0.0f, -0.5f, 1.5f}, 0.4f };
-    Sphere s2 = { {0.8f, -0.5f, 1.0f}, 0.4f };
+    Sphere sphere = { {0.0f, -2.0f, 0.0f}, 0.6f };
+    Plane plane = { {0.0f, 1.0f, 0.0f}, -1.0f };
 
-    Vector3 cameraTranslate = { 0.0f, 1.5f, -6.49f };
+    Vector3 cameraTranslate = { 0.0f, 1.5f, -6.0f };
     Vector3 cameraRotate = { 0.26f, 0.0f, 0.0f };
 
     int mouseX, mouseY, prevMouseX = 0, prevMouseY = 0;
@@ -196,7 +258,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         Novice::GetHitKeyStateAll(keys);
         Novice::GetMousePosition(&mouseX, &mouseY);
 
-        // マウス中ボタンでカメラ回転
         if (Novice::IsPressMouse(2)) {
             cameraRotate.y += (mouseX - prevMouseX) * 0.01f;
             cameraRotate.x += (mouseY - prevMouseY) * 0.01f;
@@ -204,25 +265,25 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         prevMouseX = mouseX;
         prevMouseY = mouseY;
 
-        // ImGuiウィンドウ表示（球編集）
-        ImGui::Begin("Window");
-        ImGui::DragFloat3("Sphere[0].Center", &s1.center.x, 0.01f);
-        ImGui::DragFloat("Sphere[0].Radius", &s1.radius, 0.01f);
-        ImGui::DragFloat3("Sphere[1].Center", &s2.center.x, 0.01f);
-        ImGui::DragFloat("Sphere[1].Radius", &s2.radius, 0.01f);
+        ImGui::Begin("Collision Editor");
+        ImGui::DragFloat3("Sphere Center", &sphere.center.x, 0.01f);
+        ImGui::DragFloat("Sphere Radius", &sphere.radius, 0.01f);
+        ImGui::DragFloat3("Plane Normal", &plane.normal.x, 0.01f);
+        ImGui::DragFloat("Plane Distance", &plane.distance, 0.01f);
         ImGui::End();
 
-        // 行列の合成
+        plane.normal = Normalize(plane.normal);
+
         Matrix4x4 view = Multiply(MakeRotateXMatrix(cameraRotate.x), Multiply(MakeRotateYMatrix(cameraRotate.y), MakeTranslateMatrix(cameraTranslate)));
         Matrix4x4 proj = MakePerspectiveFovMatrix(0.45f, 1280.0f / 720.0f, 0.1f, 100.0f);
         Matrix4x4 vp = Multiply(view, proj);
         Matrix4x4 viewport = MakeViewportMatrix(0, 0, 1280, 720, 0, 1);
 
-        // 描画
         DrawGrid(vp, viewport);
-        uint32_t color1 = IsCollision(s1, s2) ? 0xFF0000FF : 0xFFFFFFFF;
-        DrawSphere(s1, vp, viewport, color1);
-        DrawSphere(s2, vp, viewport, 0xFFFFFFFF);
+        DrawPlane(plane, vp, viewport, 0x00FF00FF);
+
+        unsigned int color = IsCollision(sphere, plane) ? 0xFF0000FF : 0xFFFFFFFF;
+        DrawSphere(sphere, vp, viewport, color);
 
         Novice::EndFrame();
         if (preKeys[DIK_ESCAPE] == 0 && keys[DIK_ESCAPE] != 0) break;
