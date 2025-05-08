@@ -3,8 +3,11 @@
 #include <stdint.h>
 #include <math.h>
 
-const char kWindowTitle[] = "球と球の衝突判定";
+const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_球と球の衝突判定";
 
+//========================================
+// 構造体定義
+//========================================
 struct Vector3 {
     float x, y, z;
 };
@@ -18,6 +21,9 @@ struct Sphere {
     float radius;
 };
 
+//========================================
+// ベクトル演算ユーティリティ関数
+//========================================
 Vector3 Subtract(const Vector3& a, const Vector3& b) {
     return { a.x - b.x, a.y - b.y, a.z - b.z };
 }
@@ -30,6 +36,9 @@ float Length(const Vector3& v) {
     return sqrtf(Dot(v, v));
 }
 
+//========================================
+// 行列の生成と変換処理
+//========================================
 Matrix4x4 MakeIdentityMatrix() {
     return { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
 }
@@ -87,6 +96,9 @@ Matrix4x4 MakeViewportMatrix(float left, float top, float width, float height, f
     return m;
 }
 
+//========================================
+// ベクトルの座標変換（行列適用）
+//========================================
 Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
     float x = v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + m.m[3][0];
     float y = v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + m.m[3][1];
@@ -95,12 +107,18 @@ Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
     return { x / w, y / w, z / w };
 }
 
+//========================================
+// 衝突判定（中心間の距離と半径の和）
+//========================================
 bool IsCollision(const Sphere& s1, const Sphere& s2) {
     float distance = Length(Subtract(s1.center, s2.center));
     return distance <= (s1.radius + s2.radius);
 }
 
-void DrawSphere(const Sphere& sphere, const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color) {
+//========================================
+// 球の描画（緯度・経度分割による）
+//========================================
+void DrawSphere(const Sphere& sphere, const Matrix4x4& vp, const Matrix4x4& viewport, uint32_t color) {
     const uint32_t kSubdivision = 16;
     const float kLonEvery = 2.0f * 3.14159f / kSubdivision;
     const float kLatEvery = 3.14159f / kSubdivision;
@@ -126,9 +144,9 @@ void DrawSphere(const Sphere& sphere, const Matrix4x4& viewProjectionMatrix, con
                 sphere.center.z + sphere.radius * cosf(lat) * sinf(lon + kLonEvery)
             };
 
-            Vector3 aScreen = Transform(Transform(a, viewProjectionMatrix), viewportMatrix);
-            Vector3 bScreen = Transform(Transform(b, viewProjectionMatrix), viewportMatrix);
-            Vector3 cScreen = Transform(Transform(c, viewProjectionMatrix), viewportMatrix);
+            Vector3 aScreen = Transform(Transform(a, vp), viewport);
+            Vector3 bScreen = Transform(Transform(b, vp), viewport);
+            Vector3 cScreen = Transform(Transform(c, vp), viewport);
 
             Novice::DrawLine((int)aScreen.x, (int)aScreen.y, (int)bScreen.x, (int)bScreen.y, color);
             Novice::DrawLine((int)aScreen.x, (int)aScreen.y, (int)cScreen.x, (int)cScreen.y, color);
@@ -136,10 +154,13 @@ void DrawSphere(const Sphere& sphere, const Matrix4x4& viewProjectionMatrix, con
     }
 }
 
+//========================================
+// グリッド描画（XZ平面）
+//========================================
 void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
     const float size = 2.0f;
     const int div = 10;
-    const float y = -2.0f; // ▼ グリッドのY位置を下に変更
+    const float y = -2.0f;
     for (int i = 0; i <= div; ++i) {
         float p = -size + (2 * size) * i / div;
         Vector3 s1 = Transform(Transform({ p, y, -size }, vp), viewport);
@@ -152,16 +173,19 @@ void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
     }
 }
 
+//========================================
+// メイン関数
+//========================================
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     Novice::Initialize(kWindowTitle, 1280, 720);
 
     char keys[256] = { 0 };
     char preKeys[256] = { 0 };
 
-    Sphere s1 = { {0.0f, -0.5f, 1.5f}, 0.6f };  // ▼ 球1のYを下へ
-    Sphere s2 = { {0.8f, -0.5f, 1.0f}, 0.4f };  // ▼ 球2のYを下へ
+    Sphere s1 = { {0.0f, -0.5f, 1.5f}, 0.4f };
+    Sphere s2 = { {0.8f, -0.5f, 1.0f}, 0.4f };
 
-    Vector3 cameraTranslate = { 0.0f, 1.5f, -6.49f }; // ▼ 視点位置もYを下げて合わせる
+    Vector3 cameraTranslate = { 0.0f, 1.5f, -6.49f };
     Vector3 cameraRotate = { 0.26f, 0.0f, 0.0f };
 
     int mouseX, mouseY, prevMouseX = 0, prevMouseY = 0;
@@ -172,6 +196,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         Novice::GetHitKeyStateAll(keys);
         Novice::GetMousePosition(&mouseX, &mouseY);
 
+        // マウス中ボタンでカメラ回転
         if (Novice::IsPressMouse(2)) {
             cameraRotate.y += (mouseX - prevMouseX) * 0.01f;
             cameraRotate.x += (mouseY - prevMouseY) * 0.01f;
@@ -179,6 +204,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         prevMouseX = mouseX;
         prevMouseY = mouseY;
 
+        // ImGuiウィンドウ表示（球編集）
         ImGui::Begin("Window");
         ImGui::DragFloat3("Sphere[0].Center", &s1.center.x, 0.01f);
         ImGui::DragFloat("Sphere[0].Radius", &s1.radius, 0.01f);
@@ -186,11 +212,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         ImGui::DragFloat("Sphere[1].Radius", &s2.radius, 0.01f);
         ImGui::End();
 
+        // 行列の合成
         Matrix4x4 view = Multiply(MakeRotateXMatrix(cameraRotate.x), Multiply(MakeRotateYMatrix(cameraRotate.y), MakeTranslateMatrix(cameraTranslate)));
         Matrix4x4 proj = MakePerspectiveFovMatrix(0.45f, 1280.0f / 720.0f, 0.1f, 100.0f);
         Matrix4x4 vp = Multiply(view, proj);
         Matrix4x4 viewport = MakeViewportMatrix(0, 0, 1280, 720, 0, 1);
 
+        // 描画
         DrawGrid(vp, viewport);
         uint32_t color1 = IsCollision(s1, s2) ? 0xFF0000FF : 0xFFFFFFFF;
         DrawSphere(s1, vp, viewport, color1);
