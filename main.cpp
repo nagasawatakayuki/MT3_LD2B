@@ -2,7 +2,7 @@
 #include <imgui.h>
 #include <math.h>
 
-const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_球と平面の衝突判定";
+const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_線分と平面の衝突判定";
 
 //========================================
 // 構造体定義
@@ -15,25 +15,25 @@ struct Matrix4x4 {
     float m[4][4];
 };
 
-struct Sphere {
-    Vector3 center;
-    float radius;
-};
-
 struct Plane {
     Vector3 normal;
     float distance;
 };
 
+struct Segment {
+    Vector3 origin;
+    Vector3 diff;
+};
+
 //========================================
 // ベクトル演算
 //========================================
-Vector3 Subtract(const Vector3& a, const Vector3& b) {
-    return { a.x - b.x, a.y - b.y, a.z - b.z };
-}
-
 Vector3 Add(const Vector3& a, const Vector3& b) {
     return { a.x + b.x, a.y + b.y, a.z + b.z };
+}
+
+Vector3 Subtract(const Vector3& a, const Vector3& b) {
+    return { a.x - b.x, a.y - b.y, a.z - b.z };
 }
 
 Vector3 Multiply(float s, const Vector3& v) {
@@ -131,87 +131,16 @@ Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
 }
 
 //========================================
-// 衝突判定（球と平面）
+// 衝突判定：線分と平面
 //========================================
-bool IsCollision(const Sphere& sphere, const Plane& plane) {
-    float distance = Dot(plane.normal, sphere.center) - plane.distance;
-    return fabsf(distance) <= sphere.radius;
+bool IsCollision(const Segment& seg, const Plane& plane) {
+    float d0 = Dot(plane.normal, seg.origin) - plane.distance;
+    float d1 = Dot(plane.normal, Add(seg.origin, seg.diff)) - plane.distance;
+    return d0 * d1 <= 0.0f;
 }
 
 //========================================
-// グリッド描画
-//========================================
-void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
-    const float size = 2.0f;
-    const int div = 10;
-    const float y = -2.0f;
-    for (int i = 0; i <= div; ++i) {
-        float p = -size + (2 * size) * i / div;
-        Vector3 s1 = Transform(Transform({ p, y, -size }, vp), viewport);
-        Vector3 e1 = Transform(Transform({ p, y, size }, vp), viewport);
-        Vector3 s2 = Transform(Transform({ -size, y, p }, vp), viewport);
-        Vector3 e2 = Transform(Transform({ size, y, p }, vp), viewport);
-        unsigned int color = fabsf(p) < 0.001f ? 0x000000FF : 0xAAAAAAFF;
-        Novice::DrawLine((int)s1.x, (int)s1.y, (int)e1.x, (int)e1.y, color);
-        Novice::DrawLine((int)s2.x, (int)s2.y, (int)e2.x, (int)e2.y, color);
-    }
-}
-
-void DrawSphere(const Sphere& sphere, const Matrix4x4& vp, const Matrix4x4& viewport, unsigned int color) {
-    const int kSubdivision = 16;
-    const float kLonEvery = 2.0f * 3.14159f / kSubdivision;
-    const float kLatEvery = 3.14159f / kSubdivision;
-
-    // 経度方向の分割（横方向）
-    for (int lat = 0; lat < kSubdivision; ++lat) {
-        float latAngle = -3.14159f / 2.0f + kLatEvery * lat;
-        for (int lon = 0; lon < kSubdivision; ++lon) {
-            float lonAngle = lon * kLonEvery;
-
-            Vector3 a = {
-                sphere.center.x + sphere.radius * cosf(latAngle) * cosf(lonAngle),
-                sphere.center.y + sphere.radius * sinf(latAngle),
-                sphere.center.z + sphere.radius * cosf(latAngle) * sinf(lonAngle)
-            };
-            Vector3 b = {
-                sphere.center.x + sphere.radius * cosf(latAngle + kLatEvery) * cosf(lonAngle),
-                sphere.center.y + sphere.radius * sinf(latAngle + kLatEvery),
-                sphere.center.z + sphere.radius * cosf(latAngle + kLatEvery) * sinf(lonAngle)
-            };
-
-            Vector3 screenA = Transform(Transform(a, vp), viewport);
-            Vector3 screenB = Transform(Transform(b, vp), viewport);
-            Novice::DrawLine((int)screenA.x, (int)screenA.y, (int)screenB.x, (int)screenB.y, color);
-        }
-    }
-
-    // 緯度方向の分割（縦方向）
-    for (int lon = 0; lon < kSubdivision; ++lon) {
-        float lonAngle = lon * kLonEvery;
-        for (int lat = 0; lat < kSubdivision; ++lat) {
-            float latAngle = -3.14159f / 2.0f + kLatEvery * lat;
-
-            Vector3 a = {
-                sphere.center.x + sphere.radius * cosf(latAngle) * cosf(lonAngle),
-                sphere.center.y + sphere.radius * sinf(latAngle),
-                sphere.center.z + sphere.radius * cosf(latAngle) * sinf(lonAngle)
-            };
-            Vector3 b = {
-                sphere.center.x + sphere.radius * cosf(latAngle) * cosf(lonAngle + kLonEvery),
-                sphere.center.y + sphere.radius * sinf(latAngle),
-                sphere.center.z + sphere.radius * cosf(latAngle) * sinf(lonAngle + kLonEvery)
-            };
-
-            Vector3 screenA = Transform(Transform(a, vp), viewport);
-            Vector3 screenB = Transform(Transform(b, vp), viewport);
-            Novice::DrawLine((int)screenA.x, (int)screenA.y, (int)screenB.x, (int)screenB.y, color);
-        }
-    }
-}
-
-
-//========================================
-// 平面の描画
+// 平面の描画（4点から構成）
 //========================================
 Vector3 Perpendicular(const Vector3& v) {
     return (v.x != 0.0f || v.y != 0.0f) ? Vector3{ -v.y, v.x, 0 } : Vector3{ 0, -v.z, v.y };
@@ -236,15 +165,33 @@ void DrawPlane(const Plane& plane, const Matrix4x4& vp, const Matrix4x4& viewpor
 }
 
 //========================================
+// グリッド描画
+//========================================
+void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
+    const float size = 2.0f;
+    const int div = 10;
+    const float y = -2.0f;
+    for (int i = 0; i <= div; ++i) {
+        float p = -size + (2 * size) * i / div;
+        Vector3 s1 = Transform(Transform({ p, y, -size }, vp), viewport);
+        Vector3 e1 = Transform(Transform({ p, y, size }, vp), viewport);
+        Vector3 s2 = Transform(Transform({ -size, y, p }, vp), viewport);
+        Vector3 e2 = Transform(Transform({ size, y, p }, vp), viewport);
+        unsigned int color = fabsf(p) < 0.001f ? 0x000000FF : 0xAAAAAAFF;
+        Novice::DrawLine((int)s1.x, (int)s1.y, (int)e1.x, (int)e1.y, color);
+        Novice::DrawLine((int)s2.x, (int)s2.y, (int)e2.x, (int)e2.y, color);
+    }
+}
+
+//========================================
 // メイン関数
 //========================================
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     Novice::Initialize(kWindowTitle, 1280, 720);
 
-    char keys[256] = {};
-    char preKeys[256] = {};
+    char keys[256] = {}, preKeys[256] = {};
 
-    Sphere sphere = { {0.0f, -2.0f, 0.0f}, 0.6f };
+    Segment seg = { {-0.5f, -1.5f, 0.0f}, {1.5f, -2.0f, 0.0f} };
     Plane plane = { {0.0f, 1.0f, 0.0f}, -1.0f };
 
     Vector3 cameraTranslate = { 0.0f, 1.5f, -6.0f };
@@ -265,11 +212,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         prevMouseX = mouseX;
         prevMouseY = mouseY;
 
-        ImGui::Begin("Collision Editor");
-        ImGui::DragFloat3("Sphere Center", &sphere.center.x, 0.01f);
-        ImGui::DragFloat("Sphere Radius", &sphere.radius, 0.01f);
-        ImGui::DragFloat3("Plane Normal", &plane.normal.x, 0.01f);
-        ImGui::DragFloat("Plane Distance", &plane.distance, 0.01f);
+        // ImGui表示
+        ImGui::Begin("Window");
+        ImGui::DragFloat3("Plane.Normal", &plane.normal.x, 0.01f);
+        ImGui::DragFloat("Plane.Distance", &plane.distance, 0.01f);
+        ImGui::DragFloat3("Segment.Origin", &seg.origin.x, 0.01f);
+        ImGui::DragFloat3("Segment.Diff", &seg.diff.x, 0.01f);
         ImGui::End();
 
         plane.normal = Normalize(plane.normal);
@@ -282,8 +230,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         DrawGrid(vp, viewport);
         DrawPlane(plane, vp, viewport, 0x00FF00FF);
 
-        unsigned int color = IsCollision(sphere, plane) ? 0xFF0000FF : 0xFFFFFFFF;
-        DrawSphere(sphere, vp, viewport, color);
+        Vector3 p0 = Transform(Transform(seg.origin, vp), viewport);
+        Vector3 p1 = Transform(Transform(Add(seg.origin, seg.diff), vp), viewport);
+
+        unsigned int color = IsCollision(seg, plane) ? 0xFF0000FF : 0xFFFFFFFF;
+        Novice::DrawLine((int)p0.x, (int)p0.y, (int)p1.x, (int)p1.y, color);
 
         Novice::EndFrame();
         if (preKeys[DIK_ESCAPE] == 0 && keys[DIK_ESCAPE] != 0) break;
