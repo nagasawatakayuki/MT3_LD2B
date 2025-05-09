@@ -118,11 +118,33 @@ Vector3 ClosestPoint(const Vector3& point, const AABB& aabb) {
 bool IsCollision(const AABB& aabb, const Segment& seg) {
     Vector3 p1 = seg.origin;
     Vector3 p2 = Add(seg.origin, seg.diff);
-    Vector3 mid = Multiply(0.5f, Add(p1, p2));
-    Vector3 closest = ClosestPoint(mid, aabb);
-    Vector3 d = Subtract(closest, mid);
-    return Length(d) < Length(seg.diff) * 0.5f;
+
+    float tmin = 0.0f;
+    float tmax = 1.0f;
+
+    for (int i = 0; i < 3; ++i) {
+        float start = ((float*)&p1)[i];
+        float end = ((float*)&p2)[i];
+        float min = ((float*)&aabb.min)[i];
+        float max = ((float*)&aabb.max)[i];
+
+        float d = end - start;
+
+        if (fabsf(d) < 1e-6f) {
+            if (start < min || start > max) return false;
+        } else {
+            float invD = 1.0f / d;
+            float t0 = (min - start) * invD;
+            float t1 = (max - start) * invD;
+            if (t0 > t1) std::swap(t0, t1);
+            tmin = std::max(tmin, t0);
+            tmax = std::min(tmax, t1);
+            if (tmin > tmax) return false;
+        }
+    }
+    return true;
 }
+
 
 //================================================
 // AABB描画
@@ -177,8 +199,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     char keys[256]{}, preKeys[256]{};
     int mouseX, mouseY, prevMouseX = 0, prevMouseY = 0;
 
-    AABB aabb = { {-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f} };
-    Segment segment = { {-0.7f, 0.3f, 0.0f}, {2.0f, -0.5f, 0.0f} };
+    AABB aabb = { {-0.5f, -1.9f, -0.5f}, {0.5f, -0.9f, 0.5f} };
+    Segment segment = { {-0.7f, -0.3f, 0.0f}, {2.0f, -0.8f, 0.0f} };
 
     Vector3 cameraTranslate = { 0.0f, 1.5f, -6.0f };
     Vector3 cameraRotate = { 0.26f, 0.0f, 0.0f };
