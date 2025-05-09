@@ -1,11 +1,12 @@
 #include <Novice.h>
 #include <imgui.h>
+#include <algorithm>
 #include <math.h>
 
-const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_三角形と線分の衝突判定";
+const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_AABBとAABBの衝突判定";
 
 //========================================
-// 基本構造体定義
+// 構造体定義
 //========================================
 struct Vector3 {
     float x, y, z;
@@ -15,13 +16,9 @@ struct Matrix4x4 {
     float m[4][4];
 };
 
-struct Segment {
-    Vector3 origin;
-    Vector3 diff;
-};
-
-struct Triangle {
-    Vector3 vertices[3];
+struct AABB {
+    Vector3 min;
+    Vector3 max;
 };
 
 //========================================
@@ -33,29 +30,15 @@ Vector3 Add(const Vector3& a, const Vector3& b) {
 Vector3 Subtract(const Vector3& a, const Vector3& b) {
     return { a.x - b.x, a.y - b.y, a.z - b.z };
 }
-Vector3 Multiply(float s, const Vector3& v) {
-    return { s * v.x, s * v.y, s * v.z };
-}
 float Dot(const Vector3& a, const Vector3& b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
-Vector3 Cross(const Vector3& a, const Vector3& b) {
-    return {
-        a.y * b.z - a.z * b.y,
-        a.z * b.x - a.x * b.z,
-        a.x * b.y - a.y * b.x
-    };
-}
-float Length(const Vector3& v) {
-    return sqrtf(Dot(v, v));
-}
-Vector3 Normalize(const Vector3& v) {
-    float len = Length(v);
-    return len == 0 ? Vector3{ 0, 0, 0 } : Multiply(1.0f / len, v);
+Vector3 Multiply(float scalar, const Vector3& v) {
+    return { v.x * scalar, v.y * scalar, v.z * scalar };
 }
 
 //========================================
-// 行列関係
+// 行列処理
 //========================================
 Matrix4x4 MakeIdentityMatrix() {
     return { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
@@ -67,18 +50,18 @@ Matrix4x4 MakeTranslateMatrix(Vector3 t) {
 }
 Matrix4x4 MakeRotateXMatrix(float rad) {
     return {
-        1,0,0,0,
-        0,cosf(rad),sinf(rad),0,
-        0,-sinf(rad),cosf(rad),0,
-        0,0,0,1
+        1, 0, 0, 0,
+        0, cosf(rad), sinf(rad), 0,
+        0, -sinf(rad), cosf(rad), 0,
+        0, 0, 0, 1
     };
 }
 Matrix4x4 MakeRotateYMatrix(float rad) {
     return {
-        cosf(rad),0,-sinf(rad),0,
-        0,1,0,0,
-        sinf(rad),0,cosf(rad),0,
-        0,0,0,1
+        cosf(rad), 0, -sinf(rad), 0,
+        0, 1, 0, 0,
+        sinf(rad), 0, cosf(rad), 0,
+        0, 0, 0, 1
     };
 }
 Matrix4x4 Multiply(const Matrix4x4& m1, const Matrix4x4& m2) {
@@ -116,31 +99,40 @@ Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
 }
 
 //========================================
-// 衝突判定（三角形と線分）
-// モーラー・トランバーグ法ベース
+// 衝突判定（AABB vs AABB）
 //========================================
-bool IsCollision(const Triangle& tri, const Segment& seg) {
-    Vector3 p0 = tri.vertices[0];
-    Vector3 p1 = tri.vertices[1];
-    Vector3 p2 = tri.vertices[2];
-    Vector3 dir = seg.diff;
-    Vector3 edge1 = Subtract(p1, p0);
-    Vector3 edge2 = Subtract(p2, p0);
-    Vector3 h = Cross(dir, edge2);
-    float det = Dot(edge1, h);
-    if (fabs(det) < 1e-5f) return false;
+bool IsCollision(const AABB& a, const AABB& b) {
+    return (a.min.x <= b.max.x && a.max.x >= b.min.x) &&
+        (a.min.y <= b.max.y && a.max.y >= b.min.y) &&
+        (a.min.z <= b.max.z && a.max.z >= b.min.z);
+}
 
-    float invDet = 1.0f / det;
-    Vector3 s = Subtract(seg.origin, p0);
-    float u = Dot(s, h) * invDet;
-    if (u < 0.0f || u > 1.0f) return false;
+//========================================
+// AABB描画
+//========================================
+void DrawAABB(const AABB& aabb, const Matrix4x4& vp, const Matrix4x4& viewport, unsigned int color) {
+    Vector3 vertices[8] = {
+        {aabb.min.x, aabb.min.y, aabb.min.z},
+        {aabb.max.x, aabb.min.y, aabb.min.z},
+        {aabb.min.x, aabb.max.y, aabb.min.z},
+        {aabb.max.x, aabb.max.y, aabb.min.z},
+        {aabb.min.x, aabb.min.y, aabb.max.z},
+        {aabb.max.x, aabb.min.y, aabb.max.z},
+        {aabb.min.x, aabb.max.y, aabb.max.z},
+        {aabb.max.x, aabb.max.y, aabb.max.z}
+    };
 
-    Vector3 q = Cross(s, edge1);
-    float v = Dot(dir, q) * invDet;
-    if (v < 0.0f || u + v > 1.0f) return false;
+    int edges[12][2] = {
+        {0,1},{1,3},{3,2},{2,0},
+        {4,5},{5,7},{7,6},{6,4},
+        {0,4},{1,5},{2,6},{3,7}
+    };
 
-    float t = Dot(edge2, q) * invDet;
-    return (t >= 0.0f && t <= 1.0f); // 線分の範囲内なら衝突
+    for (int i = 0; i < 12; i++) {
+        Vector3 a = Transform(Transform(vertices[edges[i][0]], vp), viewport);
+        Vector3 b = Transform(Transform(vertices[edges[i][1]], vp), viewport);
+        Novice::DrawLine((int)a.x, (int)a.y, (int)b.x, (int)b.y, color);
+    }
 }
 
 //========================================
@@ -163,34 +155,18 @@ void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
 }
 
 //========================================
-// 三角形描画
-//========================================
-void DrawTriangle(const Triangle& tri, const Matrix4x4& vp, const Matrix4x4& viewport, unsigned int color) {
-    for (int i = 0; i < 3; ++i) {
-        Vector3 a = Transform(Transform(tri.vertices[i], vp), viewport);
-        Vector3 b = Transform(Transform(tri.vertices[(i + 1) % 3], vp), viewport);
-        Novice::DrawLine((int)a.x, (int)a.y, (int)b.x, (int)b.y, color);
-    }
-}
-
-//========================================
 // メイン関数
 //========================================
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     Novice::Initialize(kWindowTitle, 1280, 720);
+
     char keys[256] = {}, preKeys[256] = {};
-
-    Triangle tri = { {
-        {-1.0f, -2.0f, 0.0f},
-        {1.0f, -2.0f, 0.0f},
-        {0.0f, -1.0f, 0.0f}
-    } };
-
-    Segment seg = { {0.6f, -1.5f, -2.0f}, {0.0f, -2.0f, 1.0f} };
-
     Vector3 cameraTranslate = { 0.0f, 1.5f, -6.0f };
     Vector3 cameraRotate = { 0.26f, 0.0f, 0.0f };
     int mouseX, mouseY, prevMouseX = 0, prevMouseY = 0;
+
+    AABB aabb1 = { {-0.5f, -1.8f, -0.5f}, {0.0f, -1.0f, 0.0f} };
+    AABB aabb2 = { {0.2f, -1.8f, 0.2f}, {1.0f, -1.0f, 1.0f} };
 
     while (Novice::ProcessMessage() == 0) {
         Novice::BeginFrame();
@@ -204,27 +180,33 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         prevMouseX = mouseX;
         prevMouseY = mouseY;
 
-        // ImGui操作
-        ImGui::Begin("Window");
-        ImGui::DragFloat3("Triangle.v0", &tri.vertices[0].x, 0.01f);
-        ImGui::DragFloat3("Triangle.v1", &tri.vertices[1].x, 0.01f);
-        ImGui::DragFloat3("Triangle.v2", &tri.vertices[2].x, 0.01f);
-        ImGui::DragFloat3("Segment.Origin", &seg.origin.x, 0.01f);
-        ImGui::DragFloat3("Segment.Diff", &seg.diff.x, 0.01f);
+        ImGui::Begin("AABB");
+        ImGui::DragFloat3("AABB1 Min", &aabb1.min.x, 0.01f);
+        ImGui::DragFloat3("AABB1 Max", &aabb1.max.x, 0.01f);
+        ImGui::DragFloat3("AABB2 Min", &aabb2.min.x, 0.01f);
+        ImGui::DragFloat3("AABB2 Max", &aabb2.max.x, 0.01f);
         ImGui::End();
+
+        // min/max補正
+        for (int i = 0; i < 3; ++i) {
+            float& min1 = ((float*)&aabb1.min)[i];
+            float& max1 = ((float*)&aabb1.max)[i];
+            if (min1 > max1) std::swap(min1, max1);
+
+            float& min2 = ((float*)&aabb2.min)[i];
+            float& max2 = ((float*)&aabb2.max)[i];
+            if (min2 > max2) std::swap(min2, max2);
+        }
 
         Matrix4x4 view = Multiply(MakeRotateXMatrix(cameraRotate.x), Multiply(MakeRotateYMatrix(cameraRotate.y), MakeTranslateMatrix(cameraTranslate)));
         Matrix4x4 proj = MakePerspectiveFovMatrix(0.45f, 1280.0f / 720.0f, 0.1f, 100.0f);
         Matrix4x4 vp = Multiply(view, proj);
-        Matrix4x4 viewport = MakeViewportMatrix(0, 0, 1280, 720, 0, 1);
+        Matrix4x4 viewport = MakeViewportMatrix(0, 0, 1280, 720, 0.0f, 1.0f);
 
         DrawGrid(vp, viewport);
-        DrawTriangle(tri, vp, viewport, 0xFFFFFFFF);
-
-        Vector3 s0 = Transform(Transform(seg.origin, vp), viewport);
-        Vector3 s1 = Transform(Transform(Add(seg.origin, seg.diff), vp), viewport);
-        unsigned int color = IsCollision(tri, seg) ? 0xFF0000FF : 0xFFFFFFFF;
-        Novice::DrawLine((int)s0.x, (int)s0.y, (int)s1.x, (int)s1.y, color);
+        bool isHit = IsCollision(aabb1, aabb2);
+        DrawAABB(aabb1, vp, viewport, isHit ? 0xFF0000FF : 0xFFFFFFFF);
+        DrawAABB(aabb2, vp, viewport, 0xFFFFFFFF);
 
         Novice::EndFrame();
         if (preKeys[DIK_ESCAPE] == 0 && keys[DIK_ESCAPE] != 0) break;
