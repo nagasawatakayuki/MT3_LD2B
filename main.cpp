@@ -4,11 +4,11 @@
 #include <math.h>
 #include <algorithm>
 
-const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_AABBと線分の衝突判定";
+const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_ベジエ曲線";
 
-//================================================
+//------------------------------------------------
 // 構造体定義
-//================================================
+//------------------------------------------------
 struct Vector3 {
     float x, y, z;
 };
@@ -17,19 +17,9 @@ struct Matrix4x4 {
     float m[4][4];
 };
 
-struct AABB {
-    Vector3 min;
-    Vector3 max;
-};
-
-struct Segment {
-    Vector3 origin;
-    Vector3 diff;
-};
-
-//================================================
+//------------------------------------------------
 // ベクトル関連関数
-//================================================
+//------------------------------------------------
 Vector3 Add(const Vector3& a, const Vector3& b) {
     return { a.x + b.x, a.y + b.y, a.z + b.z };
 }
@@ -46,9 +36,16 @@ float Length(const Vector3& v) {
     return sqrtf(Dot(v, v));
 }
 
-//================================================
+//------------------------------------------------
+// 線形補間
+//------------------------------------------------
+Vector3 Lerp(const Vector3& v1, const Vector3& v2, float t) {
+    return Add(Multiply(1.0f - t, v1), Multiply(t, v2));
+}
+
+//------------------------------------------------
 // 行列関連関数
-//================================================
+//------------------------------------------------
 Matrix4x4 MakeIdentityMatrix() {
     return { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
 }
@@ -97,84 +94,34 @@ Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
     return { x / w, y / w, z / w };
 }
 
-//================================================
-// Clamp & 最近接点取得
-//================================================
-float Clamp(float value, float min, float max) {
-    return std::min(std::max(value, min), max);
-}
-Vector3 ClosestPoint(const Vector3& point, const AABB& aabb) {
-    Vector3 result;
-    result.x = Clamp(point.x, aabb.min.x, aabb.max.x);
-    result.y = Clamp(point.y, aabb.min.y, aabb.max.y);
-    result.z = Clamp(point.z, aabb.min.z, aabb.max.z);
-    return result;
-}
+//------------------------------------------------
+// ベジエ曲線描画関数
+//------------------------------------------------
+void DrawBezier(const Vector3& p0, const Vector3& p1, const Vector3& p2,
+    const Matrix4x4& vp, const Matrix4x4& viewport, unsigned int color) {
+    const int kSubdiv = 30;
+    for (int i = 0; i < kSubdiv; ++i) {
+        float t0 = (float)i / kSubdiv;
+        float t1 = (float)(i + 1) / kSubdiv;
 
+        Vector3 a1 = Lerp(p0, p1, t0);
+        Vector3 b1 = Lerp(p1, p2, t0);
+        Vector3 pA = Lerp(a1, b1, t0);
 
-//================================================
-// 衝突判定（線分 vs AABB）
-//================================================
-bool IsCollision(const AABB& aabb, const Segment& seg) {
-    Vector3 p1 = seg.origin;
-    Vector3 p2 = Add(seg.origin, seg.diff);
+        Vector3 a2 = Lerp(p0, p1, t1);
+        Vector3 b2 = Lerp(p1, p2, t1);
+        Vector3 pB = Lerp(a2, b2, t1);
 
-    float tmin = 0.0f;
-    float tmax = 1.0f;
+        Vector3 spA = Transform(Transform(pA, vp), viewport);
+        Vector3 spB = Transform(Transform(pB, vp), viewport);
 
-    for (int i = 0; i < 3; ++i) {
-        float start = ((float*)&p1)[i];
-        float end = ((float*)&p2)[i];
-        float min = ((float*)&aabb.min)[i];
-        float max = ((float*)&aabb.max)[i];
-
-        float d = end - start;
-
-        if (fabsf(d) < 1e-6f) {
-            if (start < min || start > max) return false;
-        } else {
-            float invD = 1.0f / d;
-            float t0 = (min - start) * invD;
-            float t1 = (max - start) * invD;
-            if (t0 > t1) std::swap(t0, t1);
-            tmin = std::max(tmin, t0);
-            tmax = std::min(tmax, t1);
-            if (tmin > tmax) return false;
-        }
-    }
-    return true;
-}
-
-
-//================================================
-// AABB描画
-//================================================
-void DrawAABB(const AABB& aabb, const Matrix4x4& vp, const Matrix4x4& viewport, unsigned int color) {
-    Vector3 v[8] = {
-        {aabb.min.x, aabb.min.y, aabb.min.z},
-        {aabb.max.x, aabb.min.y, aabb.min.z},
-        {aabb.min.x, aabb.max.y, aabb.min.z},
-        {aabb.max.x, aabb.max.y, aabb.min.z},
-        {aabb.min.x, aabb.min.y, aabb.max.z},
-        {aabb.max.x, aabb.min.y, aabb.max.z},
-        {aabb.min.x, aabb.max.y, aabb.max.z},
-        {aabb.max.x, aabb.max.y, aabb.max.z},
-    };
-    int edges[12][2] = {
-        {0,1},{1,3},{3,2},{2,0},
-        {4,5},{5,7},{7,6},{6,4},
-        {0,4},{1,5},{2,6},{3,7}
-    };
-    for (int i = 0; i < 12; ++i) {
-        Vector3 a = Transform(Transform(v[edges[i][0]], vp), viewport);
-        Vector3 b = Transform(Transform(v[edges[i][1]], vp), viewport);
-        Novice::DrawLine((int)a.x, (int)a.y, (int)b.x, (int)b.y, color);
+        Novice::DrawLine((int)spA.x, (int)spA.y, (int)spB.x, (int)spB.y, color);
     }
 }
 
-//================================================
+//------------------------------------------------
 // グリッド描画
-//================================================
+//------------------------------------------------
 void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
     const float size = 2.0f;
     const int div = 10;
@@ -191,19 +138,22 @@ void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
     }
 }
 
-//================================================
+//------------------------------------------------
 // メイン関数
-//================================================
+//------------------------------------------------
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     Novice::Initialize(kWindowTitle, 1280, 720);
     char keys[256]{}, preKeys[256]{};
-    int mouseX, mouseY, prevMouseX = 0, prevMouseY = 0;
 
-    AABB aabb = { {-0.5f, -1.9f, -0.5f}, {0.5f, -0.9f, 0.5f} };
-    Segment segment = { {-0.7f, -0.3f, 0.0f}, {2.0f, -0.8f, 0.0f} };
+    Vector3 controlPoints[3] = {
+        {-0.8f, -1.6f, 1.0f},
+        {1.3f, -1.5f, -0.3f},
+        {0.94f, -1.2f, 2.3f},
+    };
 
     Vector3 cameraTranslate = { 0.0f, 1.5f, -6.0f };
     Vector3 cameraRotate = { 0.26f, 0.0f, 0.0f };
+    int mouseX, mouseY, prevMouseX = 0, prevMouseY = 0;
 
     while (Novice::ProcessMessage() == 0) {
         Novice::BeginFrame();
@@ -218,18 +168,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         prevMouseX = mouseX;
         prevMouseY = mouseY;
 
-        ImGui::Begin("AABB & Segment");
-        ImGui::DragFloat3("AABB Min", &aabb.min.x, 0.01f);
-        ImGui::DragFloat3("AABB Max", &aabb.max.x, 0.01f);
-        ImGui::DragFloat3("Segment Origin", &segment.origin.x, 0.01f);
-        ImGui::DragFloat3("Segment Diff", &segment.diff.x, 0.01f);
+        ImGui::Begin("Bezier Control Points");
+        ImGui::DragFloat3("P0", &controlPoints[0].x, 0.01f);
+        ImGui::DragFloat3("P1", &controlPoints[1].x, 0.01f);
+        ImGui::DragFloat3("P2", &controlPoints[2].x, 0.01f);
         ImGui::End();
-
-        for (int i = 0; i < 3; ++i) {
-            float& minVal = ((float*)&aabb.min)[i];
-            float& maxVal = ((float*)&aabb.max)[i];
-            if (minVal > maxVal) std::swap(minVal, maxVal);
-        }
 
         Matrix4x4 view = Multiply(MakeRotateXMatrix(cameraRotate.x), Multiply(MakeRotateYMatrix(cameraRotate.y), MakeTranslateMatrix(cameraTranslate)));
         Matrix4x4 proj = MakePerspectiveFovMatrix(0.45f, 1280.0f / 720.0f, 0.1f, 100.0f);
@@ -237,13 +180,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         Matrix4x4 viewport = MakeViewportMatrix(0, 0, 1280, 720, 0, 1);
 
         DrawGrid(vp, viewport);
+        DrawBezier(controlPoints[0], controlPoints[1], controlPoints[2], vp, viewport, 0xFFFFFFFF);
 
-        bool hit = IsCollision(aabb, segment);
-        DrawAABB(aabb, vp, viewport, hit ? 0xFF0000FF : 0xFFFFFFFF);
-
-        Vector3 segStart = Transform(Transform(segment.origin, vp), viewport);
-        Vector3 segEnd = Transform(Transform(Add(segment.origin, segment.diff), vp), viewport);
-        Novice::DrawLine((int)segStart.x, (int)segStart.y, (int)segEnd.x, (int)segEnd.y, hit ? 0xFF0000FF : 0xFFFFFFFF);
+        // Control points に球体を描画（黒）
+        for (int i = 0; i < 3; ++i) {
+            Vector3 screen = Transform(Transform(controlPoints[i], vp), viewport);
+            Novice::DrawEllipse((int)screen.x, (int)screen.y, 5, 5, 0.0f, 0x000000FF, kFillModeSolid);
+        }
 
         Novice::EndFrame();
         if (preKeys[DIK_ESCAPE] == 0 && keys[DIK_ESCAPE] != 0) break;
