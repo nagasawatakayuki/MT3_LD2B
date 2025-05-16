@@ -2,9 +2,9 @@
 #include <Novice.h>
 #include <imgui.h>
 #include <math.h>
-#include <algorithm>
+#include <string>
 
-const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_ベジエ曲線";
+const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_階層構造の構築";
 
 //------------------------------------------------
 // 構造体定義
@@ -18,48 +18,44 @@ struct Matrix4x4 {
 };
 
 //------------------------------------------------
-// ベクトル関連関数
+// ベクトル・行列関連関数
 //------------------------------------------------
-Vector3 Add(const Vector3& a, const Vector3& b) {
-    return { a.x + b.x, a.y + b.y, a.z + b.z };
-}
-Vector3 Subtract(const Vector3& a, const Vector3& b) {
-    return { a.x - b.x, a.y - b.y, a.z - b.z };
-}
-Vector3 Multiply(float s, const Vector3& v) {
-    return { s * v.x, s * v.y, s * v.z };
-}
-float Dot(const Vector3& a, const Vector3& b) {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-float Length(const Vector3& v) {
-    return sqrtf(Dot(v, v));
+Vector3 MakeVector3(float x, float y, float z) {
+    return { x, y, z };
 }
 
-//------------------------------------------------
-// 線形補間
-//------------------------------------------------
-Vector3 Lerp(const Vector3& v1, const Vector3& v2, float t) {
-    return Add(Multiply(1.0f - t, v1), Multiply(t, v2));
-}
-
-//------------------------------------------------
-// 行列関連関数
-//------------------------------------------------
 Matrix4x4 MakeIdentityMatrix() {
     return { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
 }
-Matrix4x4 MakeTranslateMatrix(Vector3 t) {
+
+Matrix4x4 MakeTranslateMatrix(const Vector3& t) {
     Matrix4x4 m = MakeIdentityMatrix();
-    m.m[3][0] = t.x; m.m[3][1] = t.y; m.m[3][2] = t.z;
+    m.m[3][0] = t.x;
+    m.m[3][1] = t.y;
+    m.m[3][2] = t.z;
     return m;
 }
+
 Matrix4x4 MakeRotateXMatrix(float rad) {
     return { 1,0,0,0, 0,cosf(rad),sinf(rad),0, 0,-sinf(rad),cosf(rad),0, 0,0,0,1 };
 }
+
 Matrix4x4 MakeRotateYMatrix(float rad) {
     return { cosf(rad),0,-sinf(rad),0, 0,1,0,0, sinf(rad),0,cosf(rad),0, 0,0,0,1 };
 }
+
+Matrix4x4 MakeRotateZMatrix(float rad) {
+    return { cosf(rad),sinf(rad),0,0, -sinf(rad),cosf(rad),0,0, 0,0,1,0, 0,0,0,1 };
+}
+
+Matrix4x4 MakeScaleMatrix(const Vector3& s) {
+    Matrix4x4 m = MakeIdentityMatrix();
+    m.m[0][0] = s.x;
+    m.m[1][1] = s.y;
+    m.m[2][2] = s.z;
+    return m;
+}
+
 Matrix4x4 Multiply(const Matrix4x4& m1, const Matrix4x4& m2) {
     Matrix4x4 result{};
     for (int i = 0; i < 4; ++i)
@@ -68,6 +64,7 @@ Matrix4x4 Multiply(const Matrix4x4& m1, const Matrix4x4& m2) {
                 result.m[i][j] += m1.m[i][k] * m2.m[k][j];
     return result;
 }
+
 Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float farZ) {
     Matrix4x4 m{};
     float f = 1.0f / tanf(fovY / 2);
@@ -78,14 +75,19 @@ Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float 
     m.m[3][2] = -nearZ * farZ / (farZ - nearZ);
     return m;
 }
+
 Matrix4x4 MakeViewportMatrix(float left, float top, float width, float height, float minDepth, float maxDepth) {
     Matrix4x4 m{};
-    m.m[0][0] = width / 2; m.m[1][1] = height / 2;
+    m.m[0][0] = width / 2;
+    m.m[1][1] = height / 2;
     m.m[2][2] = maxDepth - minDepth;
-    m.m[3][0] = left + width / 2; m.m[3][1] = top + height / 2; m.m[3][2] = minDepth;
+    m.m[3][0] = left + width / 2;
+    m.m[3][1] = top + height / 2;
+    m.m[3][2] = minDepth;
     m.m[3][3] = 1;
     return m;
 }
+
 Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
     float x = v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + m.m[3][0];
     float y = v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + m.m[3][1];
@@ -95,32 +97,7 @@ Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
 }
 
 //------------------------------------------------
-// ベジエ曲線描画関数
-//------------------------------------------------
-void DrawBezier(const Vector3& p0, const Vector3& p1, const Vector3& p2,
-    const Matrix4x4& vp, const Matrix4x4& viewport, unsigned int color) {
-    const int kSubdiv = 30;
-    for (int i = 0; i < kSubdiv; ++i) {
-        float t0 = (float)i / kSubdiv;
-        float t1 = (float)(i + 1) / kSubdiv;
-
-        Vector3 a1 = Lerp(p0, p1, t0);
-        Vector3 b1 = Lerp(p1, p2, t0);
-        Vector3 pA = Lerp(a1, b1, t0);
-
-        Vector3 a2 = Lerp(p0, p1, t1);
-        Vector3 b2 = Lerp(p1, p2, t1);
-        Vector3 pB = Lerp(a2, b2, t1);
-
-        Vector3 spA = Transform(Transform(pA, vp), viewport);
-        Vector3 spB = Transform(Transform(pB, vp), viewport);
-
-        Novice::DrawLine((int)spA.x, (int)spA.y, (int)spB.x, (int)spB.y, color);
-    }
-}
-
-//------------------------------------------------
-// グリッド描画
+// グリッド描画関数
 //------------------------------------------------
 void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
     const float size = 2.0f;
@@ -145,11 +122,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     Novice::Initialize(kWindowTitle, 1280, 720);
     char keys[256]{}, preKeys[256]{};
 
-    Vector3 controlPoints[3] = {
-        {-0.8f, -1.6f, 1.0f},
-        {1.3f, -1.5f, -0.3f},
-        {0.94f, -1.2f, 2.3f},
-    };
+    Vector3 translates[3] = { {0.2f, -1.7f, 0.0f}, {0.4f, -0.7f, 0.0f}, {0.3f, -0.7f, 0.0f} };
+    Vector3 rotates[3] = { {0.0f, 0.0f, -6.8f}, {0.0f, 0.0f, -1.4f}, {0.0f, 0.0f, 0.0f} };
+    Vector3 scales[3] = { {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f} };
 
     Vector3 cameraTranslate = { 0.0f, 1.5f, -6.0f };
     Vector3 cameraRotate = { 0.26f, 0.0f, 0.0f };
@@ -159,8 +134,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         Novice::BeginFrame();
         memcpy(preKeys, keys, 256);
         Novice::GetHitKeyStateAll(keys);
-        Novice::GetMousePosition(&mouseX, &mouseY);
 
+        // マウス操作でカメラ回転
+        Novice::GetMousePosition(&mouseX, &mouseY);
         if (Novice::IsPressMouse(2)) {
             cameraRotate.y += (mouseX - prevMouseX) * 0.01f;
             cameraRotate.x += (mouseY - prevMouseY) * 0.01f;
@@ -168,25 +144,48 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         prevMouseX = mouseX;
         prevMouseY = mouseY;
 
-        ImGui::Begin("Bezier Control Points");
-        ImGui::DragFloat3("P0", &controlPoints[0].x, 0.01f);
-        ImGui::DragFloat3("P1", &controlPoints[1].x, 0.01f);
-        ImGui::DragFloat3("P2", &controlPoints[2].x, 0.01f);
+        ImGui::Begin("Joint Parameters");
+        for (int i = 0; i < 3; ++i) {
+            ImGui::DragFloat3(("Translate[" + std::to_string(i) + "]").c_str(), &translates[i].x, 0.01f);
+            ImGui::DragFloat3(("Rotate[" + std::to_string(i) + "]").c_str(), &rotates[i].x, 0.01f);
+            ImGui::DragFloat3(("Scale[" + std::to_string(i) + "]").c_str(), &scales[i].x, 0.01f);
+        }
         ImGui::End();
 
-        Matrix4x4 view = Multiply(MakeRotateXMatrix(cameraRotate.x), Multiply(MakeRotateYMatrix(cameraRotate.y), MakeTranslateMatrix(cameraTranslate)));
+        Matrix4x4 view = Multiply(MakeRotateXMatrix(cameraRotate.x),
+            Multiply(MakeRotateYMatrix(cameraRotate.y),
+                MakeTranslateMatrix(cameraTranslate)));
         Matrix4x4 proj = MakePerspectiveFovMatrix(0.45f, 1280.0f / 720.0f, 0.1f, 100.0f);
         Matrix4x4 vp = Multiply(view, proj);
-        Matrix4x4 viewport = MakeViewportMatrix(0, 0, 1280, 720, 0, 1);
+        Matrix4x4 viewport = MakeViewportMatrix(0, 0, 1280, 720, 0.0f, 1.0f);
 
         DrawGrid(vp, viewport);
-        DrawBezier(controlPoints[0], controlPoints[1], controlPoints[2], vp, viewport, 0xFFFFFFFF);
 
-        // Control points に球体を描画（黒）
+        Matrix4x4 world[3];
         for (int i = 0; i < 3; ++i) {
-            Vector3 screen = Transform(Transform(controlPoints[i], vp), viewport);
-            Novice::DrawEllipse((int)screen.x, (int)screen.y, 5, 5, 0.0f, 0x000000FF, kFillModeSolid);
+            Matrix4x4 S = MakeScaleMatrix(scales[i]);
+            Matrix4x4 Rx = MakeRotateXMatrix(rotates[i].x);
+            Matrix4x4 Ry = MakeRotateYMatrix(rotates[i].y);
+            Matrix4x4 Rz = MakeRotateZMatrix(rotates[i].z);
+            Matrix4x4 T = MakeTranslateMatrix(translates[i]);
+            Matrix4x4 local = Multiply(S, Multiply(Rz, Multiply(Ry, Multiply(Rx, T))));
+            world[i] = (i == 0) ? local : Multiply(world[i - 1], local);
         }
+
+        Vector3 pos[3];
+        for (int i = 0; i < 3; ++i) {
+            pos[i] = Transform(Transform({ 0, 0, 0 }, world[i]), vp);
+            pos[i] = Transform(pos[i], viewport);
+        }
+
+        // 肩→肘：赤
+        Novice::DrawLine((int)pos[0].x, (int)pos[0].y, (int)pos[1].x, (int)pos[1].y, 0xFF4444FF);
+        // 肘→手：青
+        Novice::DrawLine((int)pos[1].x, (int)pos[1].y, (int)pos[2].x, (int)pos[2].y, 0x4444FFFF);
+
+        Novice::DrawEllipse((int)pos[0].x, (int)pos[0].y, 8, 8, 0.0f, 0xFF0000FF, kFillModeSolid); // 肩：赤
+        Novice::DrawEllipse((int)pos[1].x, (int)pos[1].y, 8, 8, 0.0f, 0x00FF00FF, kFillModeSolid); // 肘：緑
+        Novice::DrawEllipse((int)pos[2].x, (int)pos[2].y, 8, 8, 0.0f, 0x0000FFFF, kFillModeSolid); // 手：青
 
         Novice::EndFrame();
         if (preKeys[DIK_ESCAPE] == 0 && keys[DIK_ESCAPE] != 0) break;
