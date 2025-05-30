@@ -2,7 +2,7 @@
 #include <imgui.h>
 #include <math.h>
 
-const char kWindowTitle[] = "振り子シミュレーション";
+const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_振り子シミュレーション";
 
 //==================================================
 // 基本構造体
