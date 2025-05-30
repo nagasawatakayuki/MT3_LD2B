@@ -16,11 +16,11 @@ struct Matrix4x4 {
 };
 
 struct ConicalPendulum {
-    Vector3 anchor;        // 固定点
-    float length;          // 紐の長さ
-    float halfApexAngle;   // 円錐の頂角の半分（ラジアン）
-    float angle;           // 回転角（ラジアン）
-    float angularVelocity; // 角速度
+    Vector3 anchor;        
+    float length;          
+    float halfApexAngle;   
+    float angle;           
+    float angularVelocity; 
 };
 
 //==================================================
