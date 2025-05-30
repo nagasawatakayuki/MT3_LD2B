@@ -105,10 +105,39 @@ Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
     return { x / w, y / w, z / w };
 }
 
+Matrix4x4 MakeRotateXMatrix(float rad) {
+    return {
+        1, 0, 0, 0,
+        0, cosf(rad), sinf(rad), 0,
+        0, -sinf(rad), cosf(rad), 0,
+        0, 0, 0, 1
+    };
+}
+
+Matrix4x4 MakeRotateYMatrix(float rad) {
+    return {
+        cosf(rad), 0, -sinf(rad), 0,
+        0, 1, 0, 0,
+        sinf(rad), 0, cosf(rad), 0,
+        0, 0, 0, 1
+    };
+}
+
+Matrix4x4 MakeTranslateMatrix(Vector3 t) {
+    Matrix4x4 m = MakeIdentityMatrix();
+    m.m[3][0] = t.x;
+    m.m[3][1] = t.y;
+    m.m[3][2] = t.z;
+    return m;
+}
+
+
+// 中略：Vector3, Matrix4x4, Ball, Spring, 各種関数はそのまま
+
 void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
     const float size = 2.0f;
     const int div = 10;
-    const float y = -1.0f;
+    const float y = -2.0f;
     for (int i = 0; i <= div; ++i) {
         float p = -size + (2 * size) * i / div;
         Vector3 s1 = Transform(Transform({ p, y, -size }, vp), viewport);
@@ -121,19 +150,20 @@ void DrawGrid(const Matrix4x4& vp, const Matrix4x4& viewport) {
     }
 }
 
-//------------------------------------------------
-// メイン関数
-//------------------------------------------------
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     Novice::Initialize(kWindowTitle, 1280, 720);
     char keys[256]{}, preKeys[256]{};
 
-    Spring spring{ {0, 0, 0}, 0.5f, 100.0f, 2.0f };
-    Ball ball{ {1.2f, 0, 0}, {}, {}, 2.0f, 0.05f, 0x0000FFFF };
+    Spring spring{ {0, -2.0, 0}, 0.5f, 100.0f, 2.0f };
+    Ball ball{ {1.2f, -2.0, 0}, {}, {}, 2.0f, 0.05f, 0x0000FFFF };
     float deltaTime = 1.0f / 60.0f;
 
     bool useSpring = false;
     bool justEnabled = false;
+
+    // 固定カメラ
+    Vector3 cameraTranslate = { 0.0f, 1.5f, -6.0f };
+    Vector3 cameraRotate = { 0.26f, 0.0f, 0.0f };
 
     while (Novice::ProcessMessage() == 0) {
         Novice::BeginFrame();
@@ -145,10 +175,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
             justEnabled = useSpring;
         }
 
-        // 物理演算（Spaceキーでオン）
+        // 物理演算
         if (useSpring) {
             if (justEnabled) {
-                // 初回だけ加速度・速度をリセットして反転防止
                 ball.velocity = {};
                 ball.acceleration = {};
                 justEnabled = false;
@@ -168,11 +197,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
             ball.position += ball.velocity * deltaTime;
         }
 
-        // カメラ行列（X軸方向の中心に合わせる）
-        float cameraX = (spring.anchor.x + ball.position.x) / 2;
-        Matrix4x4 view = MakeIdentityMatrix();
-        view.m[3][0] = -cameraX;
-        view.m[3][2] = 3.0f;
+        // ビュー行列（三角形コードと同様）
+        Matrix4x4 view = Multiply(
+            MakeRotateXMatrix(cameraRotate.x),
+            Multiply(MakeRotateYMatrix(cameraRotate.y),
+                MakeTranslateMatrix(cameraTranslate))
+        );
 
         Matrix4x4 proj = MakePerspectiveFovMatrix(0.45f, 1280.0f / 720.0f, 0.1f, 100.0f);
         Matrix4x4 vp = Multiply(view, proj);
