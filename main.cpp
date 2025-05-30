@@ -2,7 +2,7 @@
 #include <imgui.h>
 #include <math.h>
 
-const char kWindowTitle[] = "LD2B_04_ナガサワ_タカユキ_等速円運動のシミュレーション";
+const char kWindowTitle[] = "振り子シミュレーション";
 
 //==================================================
 // 基本構造体
@@ -16,36 +16,43 @@ struct Matrix4x4 {
 };
 
 //==================================================
-// 行列生成関数群
+// 振り子構造体
+//==================================================
+struct Pendulum {
+    Vector3 anchor;             // 固定点
+    float length;               // 紐の長さ
+    float angle;                // 現在の角度（rad）
+    float angularVelocity;      // 角速度
+    float angularAcceleration;  // 角加速度
+};
+
+//==================================================
+// 行列関連関数
 //==================================================
 Matrix4x4 MakeIdentityMatrix() {
     return { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
 }
-
 Matrix4x4 MakeTranslateMatrix(Vector3 t) {
     Matrix4x4 m = MakeIdentityMatrix();
     m.m[3][0] = t.x; m.m[3][1] = t.y; m.m[3][2] = t.z;
     return m;
 }
-
 Matrix4x4 MakeRotateXMatrix(float rad) {
     return {
-        1, 0, 0, 0,
-        0, cosf(rad), sinf(rad), 0,
-        0, -sinf(rad), cosf(rad), 0,
-        0, 0, 0, 1
+        1,0,0,0,
+        0,cosf(rad),sinf(rad),0,
+        0,-sinf(rad),cosf(rad),0,
+        0,0,0,1
     };
 }
-
 Matrix4x4 MakeRotateYMatrix(float rad) {
     return {
-        cosf(rad), 0, -sinf(rad), 0,
-        0, 1, 0, 0,
-        sinf(rad), 0, cosf(rad), 0,
-        0, 0, 0, 1
+        cosf(rad),0,-sinf(rad),0,
+        0,1,0,0,
+        sinf(rad),0,cosf(rad),0,
+        0,0,0,1
     };
 }
-
 Matrix4x4 Multiply(const Matrix4x4& m1, const Matrix4x4& m2) {
     Matrix4x4 result{};
     for (int i = 0; i < 4; ++i)
@@ -54,7 +61,6 @@ Matrix4x4 Multiply(const Matrix4x4& m1, const Matrix4x4& m2) {
                 result.m[i][j] += m1.m[i][k] * m2.m[k][j];
     return result;
 }
-
 Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float farZ) {
     Matrix4x4 m{};
     float f = 1.0f / tanf(fovY / 2);
@@ -65,7 +71,6 @@ Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float 
     m.m[3][2] = -nearZ * farZ / (farZ - nearZ);
     return m;
 }
-
 Matrix4x4 MakeViewportMatrix(float left, float top, float width, float height, float minDepth, float maxDepth) {
     Matrix4x4 m{};
     m.m[0][0] = width / 2;
@@ -77,10 +82,6 @@ Matrix4x4 MakeViewportMatrix(float left, float top, float width, float height, f
     m.m[3][3] = 1;
     return m;
 }
-
-//==================================================
-// 座標変換関数
-//==================================================
 Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
     float x = v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + m.m[3][0];
     float y = v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + m.m[3][1];
@@ -115,15 +116,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     Novice::Initialize(kWindowTitle, 1280, 720);
     char keys[256]{}, preKeys[256]{};
 
-    //=== 円運動パラメータ ===
-    float angle = 0.0f;
-    const float angularVelocity = 3.14159f;  // π rad/s
-    const float radius = 0.8f;
-    const Vector3 center = { 0.0f, -2.0f, 0.0f };
-    bool isRunning = false;
-    float deltaTime = 1.0f / 60.0f;
+    // 振り子初期値（資料準拠）
+    Pendulum pendulum;
+    pendulum.anchor = { 0.0f, -1.0f, 0.0f };
+    pendulum.length = 0.8f;
+    pendulum.angle = 0.7f;
+    pendulum.angularVelocity = 0.0f;
+    pendulum.angularAcceleration = 0.0f;
 
-    //=== カメラ設定 ===
+    const float g = 9.8f;
+    const float deltaTime = 1.0f / 60.0f;
+    bool isRunning = false;
+
+    // カメラ設定
     Vector3 cameraTranslate = { 0.0f, 1.5f, -6.0f };
     Vector3 cameraRotate = { 0.26f, 0.0f, 0.0f };
 
@@ -132,25 +137,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         memcpy(preKeys, keys, 256);
         Novice::GetHitKeyStateAll(keys);
 
-        //=== ImGui：操作UI ===
+        // ImGui UI
         ImGui::Begin("Window");
         if (ImGui::Button("Start")) {
             isRunning = true;
         }
         ImGui::End();
 
-        //=== 角度更新（等速円運動）===
+        // シミュレーション開始後の更新
         if (isRunning) {
-            angle += angularVelocity * deltaTime;
+            pendulum.angularAcceleration = -(g / pendulum.length) * sinf(pendulum.angle);
+            pendulum.angularVelocity += pendulum.angularAcceleration * deltaTime;
+            pendulum.angle += pendulum.angularVelocity * deltaTime;
         }
 
-        //=== 位置計算（XY平面）===
-        Vector3 pos{};
-        pos.x = center.x + radius * cosf(angle);
-        pos.y = center.y + radius * sinf(angle);
-        pos.z = center.z;
+        // 位置計算（円周の下向き）
+        Vector3 tip{};
+        tip.x = pendulum.anchor.x + sinf(pendulum.angle) * pendulum.length;
+        tip.y = pendulum.anchor.y - cosf(pendulum.angle) * pendulum.length;
+        tip.z = pendulum.anchor.z;
 
-        //=== カメラ行列作成 ===
+        // 行列計算
         Matrix4x4 view = Multiply(
             MakeRotateXMatrix(cameraRotate.x),
             Multiply(MakeRotateYMatrix(cameraRotate.y),
@@ -160,10 +167,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         Matrix4x4 vp = Multiply(view, proj);
         Matrix4x4 viewport = MakeViewportMatrix(0, 0, 1280, 720, 0, 1);
 
-        //=== 描画処理 ===
+        // 描画
         DrawGrid(vp, viewport);
-        Vector3 screenPos = Transform(Transform(pos, vp), viewport);
-        Novice::DrawEllipse((int)screenPos.x, (int)screenPos.y, 8, 8, 0.0f, 0xFFFFFFFF, kFillModeSolid);
+        Vector3 a = Transform(Transform(pendulum.anchor, vp), viewport);
+        Vector3 b = Transform(Transform(tip, vp), viewport);
+        Novice::DrawLine((int)a.x, (int)a.y, (int)b.x, (int)b.y, 0xFFFFFFFF);
+        Novice::DrawEllipse((int)b.x, (int)b.y, 8, 8, 0.0f, 0xFFFFFFFF, kFillModeSolid);
 
         Novice::EndFrame();
         if (preKeys[DIK_ESCAPE] == 0 && keys[DIK_ESCAPE] != 0) break;
